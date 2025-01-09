@@ -49,6 +49,14 @@ fn main() {
     println!("Fitness: {}", fitness_function(best_individual));
 }
 
+/// Generates an initial population for the genetic algorithm.
+/// 
+/// # Parameters
+/// - `size`: The number of individuals in the population.
+/// - `features_count`: The number of features (genes) for each individual.
+/// 
+/// # Returns
+/// A vector containing the generated population, where each individual is a vector of boolean values.
 fn generate_population(size: usize, features_count: usize) -> Vec<Vec<bool>> {
     let mut rng = rand::thread_rng();
     (0..size)
@@ -56,10 +64,24 @@ fn generate_population(size: usize, features_count: usize) -> Vec<Vec<bool>> {
         .collect()
 }
 
+/// Calculates the fitness of an individual.
+/// 
+/// # Parameters
+/// - `individual`: A reference to an individual represented as a vector of boolean values.
+/// 
+/// # Returns
+/// The fitness value of the individual, calculated as the sum of its `true` values.
 fn fitness_function(individual: &Vec<bool>) -> f64 {
     individual.iter().map(|&bit| if bit { 1.0 } else { 0.0 }).sum()
 }
 
+/// Evaluates the fitness of an entire population in parallel.
+/// 
+/// # Parameters
+/// - `population`: A reference to the population, where each individual is a vector of boolean values.
+/// 
+/// # Returns
+/// A vector of fitness values, one for each individual in the population.
 fn evaluate_population(population: &Vec<Vec<bool>>) -> Vec<f64> {
     population
         .par_iter()
@@ -67,6 +89,14 @@ fn evaluate_population(population: &Vec<Vec<bool>>) -> Vec<f64> {
         .collect()
 }
 
+/// Performs tournament selection to choose individuals for the next generation.
+/// 
+/// # Parameters
+/// - `population`: A reference to the current population.
+/// - `tournament_size`: The number of individuals to participate in each tournament.
+/// 
+/// # Returns
+/// A vector of selected individuals for the next generation.
 fn tournament_selection(population: &Vec<Vec<bool>>, tournament_size: usize) -> Vec<Vec<bool>> {
     let population_arc = std::sync::Arc::new(population.clone());
     (0..population.len())
@@ -87,7 +117,14 @@ fn tournament_selection(population: &Vec<Vec<bool>>, tournament_size: usize) -> 
         .collect()
 }
 
-
+/// Performs single-point crossover to generate two offspring from two parents.
+/// 
+/// # Parameters
+/// - `parent1`: A reference to the first parent.
+/// - `parent2`: A reference to the second parent.
+/// 
+/// # Returns
+/// A tuple containing two offspring, each represented as a vector of boolean values.
 fn single_point_crossover(parent1: &Vec<bool>, parent2: &Vec<bool>) -> (Vec<bool>, Vec<bool>) {
     let mut rng = rand::thread_rng();
     let crossover_point = rng.gen_range(0..parent1.len());
@@ -104,6 +141,14 @@ fn single_point_crossover(parent1: &Vec<bool>, parent2: &Vec<bool>) -> (Vec<bool
     (child1, child2)
 }
 
+/// Applies mutation to an individual by flipping its bits with a given probability.
+/// 
+/// # Parameters
+/// - `individual`: A reference to the individual to mutate.
+/// - `mutation_rate`: The probability of flipping each bit.
+/// 
+/// # Returns
+/// A mutated individual, represented as a vector of boolean values.
 fn mutate(individual: &Vec<bool>, mutation_rate: f64) -> Vec<bool> {
     let mut rng = rand::thread_rng();
     individual
