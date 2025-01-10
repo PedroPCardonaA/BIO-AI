@@ -4,14 +4,15 @@ use std::collections::HashMap;
 use plotters::prelude::*;
 
 fn main() {
-    let population_size = 1_000;
+    let population_size = 100;
     let features_count = 100;
     let lower_bound = 90;
     let mutation_rate = 0.01;
-    let tournament_size = 100;
+    let tournament_size = 10;
     let max_generations = 1000;
     let mut fitness_landscapes = HashMap::new();
     let mut fiteness_history = Vec::new();
+    let mut divesity_history = Vec::new();
 
     let mut population = generate_population(population_size, features_count);
     let mut fitnest_value = *evaluate_population(&population)
@@ -25,20 +26,20 @@ fn main() {
         fitness_landscapes.insert(individual.clone(), fitness);
     }
 
+    divesity_history.push(diversity_function(&population));
+
     while generation <= max_generations && fitnest_value < lower_bound as f64 {
         let selected_population = tournament_selection(&population, tournament_size);
-        let new_population: Vec<Vec<bool>> = (0..selected_population.len())
+        let new_population: Vec<Vec<bool>> = (0..population_size)
             .into_par_iter()
-            .flat_map(|i| {
-                let parent1 = &selected_population[i];
+            .map(|i| {
+                let parent1 = &selected_population[i % selected_population.len()];
                 let parent2 = &selected_population[(i + 1) % selected_population.len()];
-                let (child1, child2) = single_point_crossover(parent1, parent2);
-                vec![
-                    mutate(&child1, mutation_rate),
-                    mutate(&child2, mutation_rate),
-                ]
+                let (child1, _) = single_point_crossover(parent1, parent2);
+                mutate(&child1, mutation_rate)
             })
             .collect();
+
 
         population = new_population;
 
@@ -56,6 +57,8 @@ fn main() {
 
         println!("Generation: {}, Fitness: {}", generation, fitnest_value);
         fiteness_history.push(fitnest_value);
+        divesity_history.push(diversity_function(&population));
+        println!("Population: {:?}", population.len());
     }
 
     let best_individual = population
@@ -65,7 +68,8 @@ fn main() {
     println!("Best individual: {:?}", best_individual);
     println!("Fitness: {}", fitness_function(best_individual));
 
-    plot_fitness_history(&fiteness_history).unwrap();
+    plot_graph(&fiteness_history, "fitness_history.png", "Fitnes Over Generation").unwrap();
+    plot_graph(&divesity_history, "diversity_history.png", "Diversity over generation").unwrap();
 
 }
 
@@ -190,15 +194,27 @@ fn mutate(individual: &Vec<bool>, mutation_rate: f64) -> Vec<bool> {
 /// 
 /// # Returns
 /// A `Result` containing `Ok` if the plot was successfully generated, or an `Err` if an error occurred.
-fn plot_fitness_history(fitness_history: &Vec<f64>) -> Result<(),Box<dyn std::error::Error>>{
-    let root = BitMapBackend::new("fitness_history.png", (1024, 768)).into_drawing_area();
+fn plot_graph(
+    fitness_history: &Vec<f64>, 
+    file_name: &str, 
+    title: &str
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = BitMapBackend::new(file_name, (1024, 768)).into_drawing_area();
     root.fill(&WHITE)?;
 
-    let max_fitness = *fitness_history.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+    if fitness_history.is_empty() {
+        return Err("Fitness history is empty, cannot generate plot.".into());
+    }
+
+    let max_fitness = *fitness_history
+        .iter()
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap();
+
     let generations = fitness_history.len();
 
     let mut chart = ChartBuilder::on(&root)
-        .caption("Fitness Over Generations", ("sans-serif", 50))
+        .caption(title, ("sans-serif", 50))
         .margin(10)
         .x_label_area_size(30)
         .y_label_area_size(40)
@@ -218,3 +234,39 @@ fn plot_fitness_history(fitness_history: &Vec<f64>) -> Result<(),Box<dyn std::er
 
     Ok(())
 }
+
+
+/// Calculates the diversity of a population.
+///     
+/// # Parameters
+/// - `population`: A reference to the population, where each individual is a vector of boolean values.
+/// 
+/// # Returns
+/// The diversity of the population, calculated as the sum of the Hamming distances between all pairs of individuals.
+fn diversity_function(population: &Vec<Vec<bool>>) -> f64 {
+    let mut diversity = 0.0;
+    for i in 0..population.len() {
+        for j in i + 1..population.len() {
+            let distance = hamming_distance(&population[i], &population[j]);
+            diversity += distance;
+        }
+    }
+    diversity
+}
+
+/// Calculates the Hamming distance between two individuals.
+/// 
+/// # Parameters
+/// - `individual1`: A reference to the first individual.
+/// - `individual2`: A reference to the second individual.
+/// 
+/// # Returns
+/// The Hamming distance between the two individuals, calculated as the number of differing bits.
+fn hamming_distance(individual1: &Vec<bool>, individual2: &Vec<bool>) -> f64 {
+    individual1
+        .iter()
+        .zip(individual2.iter())
+        .map(|(&a, &b)| if a == b { 0.0 } else { 1.0 })
+        .sum()
+}
+ 
