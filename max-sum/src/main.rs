@@ -1,5 +1,7 @@
 use rand::Rng;
 use rayon::prelude::*;
+use std::collections::HashMap;
+use plotters::prelude::*;
 
 fn main() {
     let population_size = 1_000;
@@ -8,6 +10,8 @@ fn main() {
     let mutation_rate = 0.01;
     let tournament_size = 100;
     let max_generations = 1000;
+    let mut fitness_landscapes = HashMap::new();
+    let mut fiteness_history = Vec::new();
 
     let mut population = generate_population(population_size, features_count);
     let mut fitnest_value = *evaluate_population(&population)
@@ -15,6 +19,11 @@ fn main() {
         .max_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap();
     let mut generation = 0;
+
+    for individual in population.iter() {
+        let fitness = fitness_function(individual);
+        fitness_landscapes.insert(individual.clone(), fitness);
+    }
 
     while generation <= max_generations && fitnest_value < lower_bound as f64 {
         let selected_population = tournament_selection(&population, tournament_size);
@@ -32,6 +41,13 @@ fn main() {
             .collect();
 
         population = new_population;
+
+        for individual in population.iter() {
+            let fitness = fitness_function(individual);
+            fitness_landscapes.insert(individual.clone(), fitness);
+        }
+
+
         fitnest_value = *evaluate_population(&population)
             .par_iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
@@ -39,6 +55,7 @@ fn main() {
         generation += 1;
 
         println!("Generation: {}, Fitness: {}", generation, fitnest_value);
+        fiteness_history.push(fitnest_value);
     }
 
     let best_individual = population
@@ -47,6 +64,9 @@ fn main() {
         .unwrap();
     println!("Best individual: {:?}", best_individual);
     println!("Fitness: {}", fitness_function(best_individual));
+
+    plot_fitness_history(&fiteness_history).unwrap();
+
 }
 
 /// Generates an initial population for the genetic algorithm.
@@ -161,4 +181,40 @@ fn mutate(individual: &Vec<bool>, mutation_rate: f64) -> Vec<bool> {
             }
         })
         .collect()
+}
+
+/// Plots the fitness history of the genetic algorithm.
+/// 
+/// # Parameters
+/// - `fitness_history`: A reference to a vector containing the best fitness value for each generation.
+/// 
+/// # Returns
+/// A `Result` containing `Ok` if the plot was successfully generated, or an `Err` if an error occurred.
+fn plot_fitness_history(fitness_history: &Vec<f64>) -> Result<(),Box<dyn std::error::Error>>{
+    let root = BitMapBackend::new("fitness_history.png", (1024, 768)).into_drawing_area();
+    root.fill(&WHITE)?;
+
+    let max_fitness = *fitness_history.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+    let generations = fitness_history.len();
+
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Fitness Over Generations", ("sans-serif", 50))
+        .margin(10)
+        .x_label_area_size(30)
+        .y_label_area_size(40)
+        .build_cartesian_2d(0..generations, 0.0..max_fitness)?;
+
+    chart.configure_mesh().draw()?;
+
+    chart
+        .draw_series(LineSeries::new(
+            fitness_history.iter().enumerate().map(|(x, &y)| (x, y)),
+            &BLUE,
+        ))?
+        .label("Best Fitness")
+        .legend(|(x, y)| PathElement::new([(x, y), (x + 20, y)], &BLUE));
+
+    chart.configure_series_labels().background_style(&WHITE.mix(0.8)).draw()?;
+
+    Ok(())
 }
