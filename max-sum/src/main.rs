@@ -5,8 +5,8 @@ use plotters::prelude::*;
 
 fn main() {
     let population_size = 100;
-    let features_count = 100;
-    let lower_bound = 90;
+    let features_count = 1000;
+    let lower_bound = 900;
     let mutation_rate = 0.01;
     let tournament_size = 10;
     let max_generations = 1000;
@@ -35,7 +35,7 @@ fn main() {
             .map(|i| {
                 let parent1 = &selected_population[i % selected_population.len()];
                 let parent2 = &selected_population[(i + 1) % selected_population.len()];
-                let (child1, _) = single_point_crossover(parent1, parent2);
+                let (child1, _) = uniform_crossover(parent1, parent2);
                 mutate(&child1, mutation_rate)
             })
             .collect();
@@ -48,17 +48,20 @@ fn main() {
             fitness_landscapes.insert(individual.clone(), fitness);
         }
 
+        generation += 1;
 
-        fitnest_value = *evaluate_population(&population)
+        if generation % 50 == 0 || generation == max_generations{
+            fitnest_value = *evaluate_population(&population)
             .par_iter()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap();
-        generation += 1;
-
-        println!("Generation: {}, Fitness: {}", generation, fitnest_value);
-        fiteness_history.push(fitnest_value);
-        divesity_history.push(diversity_function(&population));
-        println!("Population: {:?}", population.len());
+        
+            println!("Generation: {}, Fitness: {}", generation, fitnest_value);
+            fiteness_history.push(fitnest_value);
+            divesity_history.push(diversity_function(&population));
+            println!("Population: {:?}", population.len());
+        }
+        
     }
 
     let best_individual = population
@@ -67,6 +70,16 @@ fn main() {
         .unwrap();
     println!("Best individual: {:?}", best_individual);
     println!("Fitness: {}", fitness_function(best_individual));
+
+    fitnest_value = *evaluate_population(&population)
+            .par_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        
+    println!("Generation: {}, Fitness: {}", generation, fitnest_value);
+    fiteness_history.push(fitnest_value);
+    divesity_history.push(diversity_function(&population));
+    println!("Population: {:?}", population.len());
 
     plot_graph(&fiteness_history, "fitness_history.png", "Fitnes Over Generation").unwrap();
     plot_graph(&divesity_history, "diversity_history.png", "Diversity over generation").unwrap();
@@ -96,7 +109,8 @@ fn generate_population(size: usize, features_count: usize) -> Vec<Vec<bool>> {
 /// # Returns
 /// The fitness value of the individual, calculated as the sum of its `true` values.
 fn fitness_function(individual: &Vec<bool>) -> f64 {
-    individual.iter().map(|&bit| if bit { 1.0 } else { 0.0 }).sum()
+    let feature_sum:f64 = individual.iter().map(|&bit| if bit { 1.0 } else { 0.0 }).sum();
+    feature_sum
 }
 
 /// Evaluates the fitness of an entire population in parallel.
@@ -141,27 +155,19 @@ fn tournament_selection(population: &Vec<Vec<bool>>, tournament_size: usize) -> 
         .collect()
 }
 
-/// Performs single-point crossover to generate two offspring from two parents.
+/// Applies uniform crossover to two parents to generate two children.
+/// The crossover is performed by randomly selecting bits from the two parents with equal probability.
 /// 
 /// # Parameters
 /// - `parent1`: A reference to the first parent.
 /// - `parent2`: A reference to the second parent.
 /// 
 /// # Returns
-/// A tuple containing two offspring, each represented as a vector of boolean values.
-fn single_point_crossover(parent1: &Vec<bool>, parent2: &Vec<bool>) -> (Vec<bool>, Vec<bool>) {
+/// A tuple containing the two children, each represented as a vector of boolean values.
+fn uniform_crossover(parent1: &Vec<bool>, parent2: &Vec<bool>) -> (Vec<bool>, Vec<bool>) {
     let mut rng = rand::thread_rng();
-    let crossover_point = rng.gen_range(0..parent1.len());
-    let child1 = parent1[..crossover_point]
-        .iter()
-        .chain(parent2[crossover_point..].iter())
-        .cloned()
-        .collect();
-    let child2 = parent2[..crossover_point]
-        .iter()
-        .chain(parent1[crossover_point..].iter())
-        .cloned()
-        .collect();
+    let child1: Vec<bool> = parent1.iter().zip(parent2.iter()).map(|(&a, &b)| if rng.gen_bool(0.5) { a } else { b }).collect();
+    let child2: Vec<bool> = parent1.iter().zip(parent2.iter()).map(|(&a, &b)| if rng.gen_bool(0.5) { b } else { a }).collect();
     (child1, child2)
 }
 
