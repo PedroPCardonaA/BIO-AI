@@ -49,7 +49,6 @@ fn tournament_selection(population: &Vec<Vec<bool>>, fitness_scores: &Vec<f64>) 
 }
 
 fn main() {
-    let mut rng = rand::thread_rng();
 
     // Initialize population
     let mut population: Vec<Vec<bool>> = (0..POPULATION_SIZE).map(|_| random_bitstring()).collect();
@@ -59,7 +58,7 @@ fn main() {
         let fitness_scores: Vec<f64> = population.iter().map(|bitstring| fitness(bitstring)).collect();
 
         // Print best solution
-        let (best_index, best_fitness) = fitness_scores
+        let (_, best_fitness) = fitness_scores
             .iter()
             .enumerate()
             .max_by(|&(_, a), &(_, b)| a.partial_cmp(b).unwrap())
