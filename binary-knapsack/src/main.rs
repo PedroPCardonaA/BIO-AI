@@ -1,5 +1,5 @@
 use csv::ReaderBuilder;
-
+use plotters::prelude::*;
 use rand::Rng;
 
 /// Structure to represent an item in the knapsack problem
@@ -64,7 +64,7 @@ fn fitness_function(individual: &Vec<bool>, items: &Vec<Item>, capacity: u32) ->
     }
 
     if total_weight > capacity {
-        let penalty = (total_weight - capacity) as i64 * -1000;
+        let penalty = (total_weight - capacity) as i64 * -1;
         total_value as i64 + penalty
     } else {
         total_value as i64
@@ -208,6 +208,7 @@ fn elitism(
 fn genetic_algorithm(items: Vec<Item>, capacity: u32, generations: usize, population_size: usize, mutation_rate: f64){
     let num_items = items.len();
     let mut population = generate_population(population_size, num_items);
+    let mut data = Vec::new();
 
     for generation in 0..generations{
         let fitnesses: Vec<i64> = population.iter().map(|sol| fitness_function(sol, &items, capacity)).collect();
@@ -216,10 +217,10 @@ fn genetic_algorithm(items: Vec<Item>, capacity: u32, generations: usize, popula
             let max_fitness = fitnesses.iter().max().unwrap();
             let avg_fitness: f64 = fitnesses.iter().map(|&f| f as f64).sum::<f64>() / fitnesses.len() as f64;
             println!("Generation {}: Max Fitness = {}, Avg Fitness = {}", generation, max_fitness, avg_fitness);
+            data.push([generation as f64, *max_fitness as f64, avg_fitness, *fitnesses.iter().min().unwrap() as f64]);
         }
 
-
-        let parents = roulette_wheel_selection(&population, &fitnesses, 5);
+        let parents = tournament_selection(&population, &fitnesses, 5);
 
         let mut offspring = Vec::new();
         for pair in parents.chunks(2){
@@ -236,12 +237,81 @@ fn genetic_algorithm(items: Vec<Item>, capacity: u32, generations: usize, popula
         population = elitism(&mut population, &fitnesses, population_size/2);
         population.extend(offspring.into_iter().take(population_size - population.len()));
     }
+    plot_data(data);
 }
+
+
+fn plot_data(data: Vec<[f64; 4]>) {
+    let generations: Vec<f64> = data.iter().map(|entry| entry[0]).collect();
+    let max_fitness: Vec<f64> = data.iter().map(|entry| entry[1]).collect();
+    let avg_fitness: Vec<f64> = data.iter().map(|entry| entry[2]).collect();
+    let min_fitness: Vec<f64> = data.iter().map(|entry| entry[3]).collect();
+
+    let root = BitMapBackend::new("fitness_plot_tournament.png", (1024, 768))
+        .into_drawing_area();
+    root.fill(&WHITE).unwrap();
+
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Fitness Over Generations with tournament selection.", ("sans-serif", 40))
+        .margin(20)
+        .x_label_area_size(40)
+        .y_label_area_size(40)
+        .build_cartesian_2d(
+            generations[0]..*generations.last().unwrap(),
+            min_fitness.iter().cloned().reduce(f64::min).unwrap()..max_fitness.iter().cloned().reduce(f64::max).unwrap(),
+        )
+        .unwrap();
+
+    // Configure the axes
+    chart
+        .configure_mesh()
+        .x_desc("Generation")
+        .y_desc("Fitness")
+        .draw()
+        .unwrap();
+
+    chart
+        .draw_series(LineSeries::new(
+            generations.iter().zip(max_fitness.iter()).map(|(&x, &y)| (x, y)),
+            &RED,
+        ))
+        .unwrap()
+        .label("Max Fitness")
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+
+    chart
+        .draw_series(LineSeries::new(
+            generations.iter().zip(avg_fitness.iter()).map(|(&x, &y)| (x, y)),
+            &BLUE,
+        ))
+        .unwrap()
+        .label("Avg Fitness")
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &BLUE));
+
+    chart
+        .draw_series(LineSeries::new(
+            generations.iter().zip(min_fitness.iter()).map(|(&x, &y)| (x, y)),
+            &GREEN,
+        ))
+        .unwrap()
+        .label("Min Fitness")
+        .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &GREEN));
+
+    chart
+        .configure_series_labels()
+        .background_style(&WHITE.mix(0.8))
+        .border_style(&BLACK)
+        .draw()
+        .unwrap();
+
+    println!("Plot saved as 'fitness_plot.png'");
+}
+
 
 /// Main function
 fn main() {
     let items = load_dataset("data/knapPI_12_500_1000_82.csv");
     println!("Loaded {} items", items.len());
     let capacity = 280785;
-    genetic_algorithm(items, capacity, 1000, 50, 0.01);
+    genetic_algorithm(items, capacity, 100, 50, 0.01);
 }
