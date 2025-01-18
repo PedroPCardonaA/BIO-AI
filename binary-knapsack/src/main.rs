@@ -114,6 +114,38 @@ fn tournament_selection(
             .collect()
 }
 
+
+/// Perform roulette wheel selection
+/// 
+/// # Arguments
+/// - `population`: A vector of solutions
+/// - `fitness_values`: A vector of fitness values
+/// - `selection_size`: The number of individuals to select
+/// 
+/// # Returns
+/// A vector of selected solutions
+fn roulette_wheel_selection(
+    population: &Vec<Vec<bool>>,
+    fitness_values: &Vec<i64>,
+    selection_size: usize) -> Vec<Vec<bool>>{
+        let total_fitness: i64 = fitness_values.iter().sum();
+        let probabilities: Vec<f64> = fitness_values.iter().map(|&f| f as f64 / total_fitness as f64).collect();
+        let mut rng = rand::thread_rng();
+        (0..selection_size)
+            .map(|_|{
+                let mut acc = 0.0;
+                let threshold = rng.gen::<f64>();
+                for (i, &prob) in probabilities.iter().enumerate(){
+                    acc += prob;
+                    if acc >= threshold{
+                        return population[i].clone();
+                    }
+                }
+                population[probabilities.len()-1].clone()
+            })
+            .collect()
+}
+
 /// Perform single-point crossover
 /// 
 /// # Arguments
@@ -180,11 +212,14 @@ fn genetic_algorithm(items: Vec<Item>, capacity: u32, generations: usize, popula
     for generation in 0..generations{
         let fitnesses: Vec<i64> = population.iter().map(|sol| fitness_function(sol, &items, capacity)).collect();
 
-        let max_fitness = fitnesses.iter().max().unwrap();
-        let avg_fitness: f64 = fitnesses.iter().map(|&f| f as f64).sum::<f64>() / fitnesses.len() as f64;
-        println!("Generation {}: Max Fitness = {}, Avg Fitness = {}", generation, max_fitness, avg_fitness);
+        if generation % 10 == 0{
+            let max_fitness = fitnesses.iter().max().unwrap();
+            let avg_fitness: f64 = fitnesses.iter().map(|&f| f as f64).sum::<f64>() / fitnesses.len() as f64;
+            println!("Generation {}: Max Fitness = {}, Avg Fitness = {}", generation, max_fitness, avg_fitness);
+        }
 
-        let parents = tournament_selection(&population, &fitnesses, 5);
+
+        let parents = roulette_wheel_selection(&population, &fitnesses, 5);
 
         let mut offspring = Vec::new();
         for pair in parents.chunks(2){
@@ -208,5 +243,5 @@ fn main() {
     let items = load_dataset("data/knapPI_12_500_1000_82.csv");
     println!("Loaded {} items", items.len());
     let capacity = 280785;
-    genetic_algorithm(items, capacity, 100, 50, 0.01);
+    genetic_algorithm(items, capacity, 1000, 50, 0.01);
 }
