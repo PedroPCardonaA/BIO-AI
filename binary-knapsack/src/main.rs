@@ -220,7 +220,7 @@ fn genetic_algorithm(items: Vec<Item>, capacity: u32, generations: usize, popula
             data.push([generation as f64, *max_fitness as f64, avg_fitness, *fitnesses.iter().min().unwrap() as f64]);
         }
 
-        let parents = tournament_selection(&population, &fitnesses, 5);
+        let parents = roulette_wheel_selection(&population, &fitnesses, 5);
 
         let mut offspring = Vec::new();
         for pair in parents.chunks(2){
@@ -313,5 +313,5 @@ fn main() {
     let items = load_dataset("data/knapPI_12_500_1000_82.csv");
     println!("Loaded {} items", items.len());
     let capacity = 280785;
-    genetic_algorithm(items, capacity, 100, 50, 0.01);
+    genetic_algorithm(items, capacity, 1000, 50, 0.01);
 }
