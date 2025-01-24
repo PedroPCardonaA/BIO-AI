@@ -3,6 +3,7 @@ use linfa_linear::{LinearRegression, FittedLinearRegression};
 use ndarray::{Array1, Array2, Axis};
 use rand::prelude::*;
 
+#[derive(Debug, Clone)]
 pub struct LinReg;
 
 impl LinReg {
