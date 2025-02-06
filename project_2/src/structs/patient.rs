@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug,Clone, Serialize, Deserialize)]
 pub struct Patient {
     pub demand: f64,                 
     pub start_time: f64,             

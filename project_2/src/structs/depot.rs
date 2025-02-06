@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Depot {
-    return_time: f64,
-    x_coord: f64,
-    y_coord: f64,
+    pub return_time: f64,
+    pub x_coord: f64,
+    pub y_coord: f64,
 }
