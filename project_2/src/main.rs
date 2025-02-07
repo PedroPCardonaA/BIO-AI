@@ -7,14 +7,9 @@ mod utils;
 
 fn main() {
     let instance = utils::parse_data::parse_data("src/data/train/train_0.json");
-    let population = generate_population(10, &instance);
+    let population = generate_population_heuristic(10, &instance);
     let parent_1 = &population[0];
-    let parent_2 = &population[1];
-    let offspring = edge_crossover(parent_1, parent_2);
-    println!("{:?}\n", parent_1);
-    println!("{:?}\n", parent_2);
-    println!("{:?}", offspring);
-    plot_map(&offspring, &instance.patients, &instance.depot);
+    plot_map(parent_1, &instance.patients, &instance.depot);
 }
 
 
@@ -36,6 +31,75 @@ fn generate_population(population_size: usize, instance: &Instance) -> Vec<Vec<V
             solution[nurse_index].push(patient);
         }
 
+        population.push(solution);
+    }
+    
+    population
+}
+
+use std::f64;
+
+// Assume Instance, Patient, Depot, and Nurse are defined as in your project.
+
+fn generate_population_heuristic(population_size: usize, instance: &Instance) -> Vec<Vec<Vec<usize>>> {
+    let mut population = Vec::with_capacity(population_size);
+    let patient_count = instance.patients.len();
+    let nurse_count = instance.nurses.len();
+    let mut rng = rand::rng();
+    
+    // Parameter to penalize nurses that already have many patients.
+    let load_penalty: f64 = 1.0; // Tune this value as needed.
+    
+    for _ in 0..population_size {
+        // Create a shuffled list of patient IDs.
+        let mut patient_ids: Vec<usize> = (1..=patient_count).collect();
+        patient_ids.shuffle(&mut rng);
+        
+        // Each solution is a vector of routes (each route is a vector of patient IDs)
+        // and each nurse's route starts and ends at the depot (index 0).
+        let mut solution = vec![Vec::new(); nurse_count];
+        
+        // First, ensure that every nurse gets one patient if possible.
+        for i in 0..nurse_count {
+            if let Some(patient) = patient_ids.pop() {
+                solution[i].push(patient);
+            }
+        }
+        
+        // For the remaining patients, assign each to the nurse that minimizes the balanced cost.
+        while let Some(patient) = patient_ids.pop() {
+            let mut best_nurse_index = 0;
+            let mut best_balanced_increase = f64::MAX;
+            
+            for (i, route) in solution.iter().enumerate() {
+                // Calculate the extra travel time of appending this patient.
+                // If the route is empty (should not occur now because of the initial assignment),
+                // use depot -> patient + patient -> depot.
+                let increase = if route.is_empty() {
+                    instance.travel_times[0][patient] + instance.travel_times[patient][0]
+                } else {
+                    // For a non-empty route, the additional cost is:
+                    // travel time from the last patient in the route to the new patient,
+                    // plus travel time from the new patient back to the depot,
+                    // minus the current travel time from the last patient to the depot.
+                    let last_patient = *route.last().unwrap();
+                    instance.travel_times[last_patient][patient] 
+                        + instance.travel_times[patient][0] 
+                        - instance.travel_times[last_patient][0]
+                };
+                
+                // Add a penalty proportional to the current number of patients in the nurse's route.
+                let balanced_increase = increase + load_penalty * (route.len() as f64);
+                
+                if balanced_increase < best_balanced_increase {
+                    best_balanced_increase = balanced_increase;
+                    best_nurse_index = i;
+                }
+            }
+            // Assign the patient to the nurse with the minimal balanced cost.
+            solution[best_nurse_index].push(patient);
+        }
+        
         population.push(solution);
     }
     
@@ -115,16 +179,33 @@ fn edge_crossover(parent1: &Vec<Vec<usize>>, parent2: &Vec<Vec<usize>>) -> Vec<V
 use plotters::{coord::types::RangedCoordf64, prelude::*};
 use std::f64::consts::PI;
 
-
 pub fn plot_map(solution: &Vec<Vec<usize>>, patients: &HashMap<String, Patient>, depot: &Depot) {
     let output_path = "solution.png";
     let root = BitMapBackend::new(output_path, (900, 900)).into_drawing_area();
     root.fill(&WHITE).unwrap();
 
-    let min_x = patients.values().map(|p| p.x_coord).fold(depot.x_coord, f64::min);
-    let max_x = patients.values().map(|p| p.x_coord).fold(depot.x_coord, f64::max);
-    let min_y = patients.values().map(|p| p.y_coord).fold(depot.y_coord, f64::min);
-    let max_y = patients.values().map(|p| p.y_coord).fold(depot.y_coord, f64::max);
+    // Scale factor for the distances.
+    let scale_factor = 1.5;
+
+    // Helper function: scales a point relative to the depot.
+    fn scale_point(x: f64, y: f64, depot: &Depot, factor: f64) -> (f64, f64) {
+        (depot.x_coord + (x - depot.x_coord) * factor,
+         depot.y_coord + (y - depot.y_coord) * factor)
+    }
+
+    // Compute scaled bounds for the chart.
+    let (scaled_depot_x, scaled_depot_y) = (depot.x_coord, depot.y_coord);
+    let mut min_x = scaled_depot_x;
+    let mut max_x = scaled_depot_x;
+    let mut min_y = scaled_depot_y;
+    let mut max_y = scaled_depot_y;
+    for patient in patients.values() {
+        let (scaled_x, scaled_y) = scale_point(patient.x_coord, patient.y_coord, depot, scale_factor);
+        if scaled_x < min_x { min_x = scaled_x; }
+        if scaled_x > max_x { max_x = scaled_x; }
+        if scaled_y < min_y { min_y = scaled_y; }
+        if scaled_y > max_y { max_y = scaled_y; }
+    }
 
     let mut chart = ChartBuilder::on(&root)
         .caption("Nurse Routing Solution", ("sans-serif", 30))
@@ -136,7 +217,7 @@ pub fn plot_map(solution: &Vec<Vec<usize>>, patients: &HashMap<String, Patient>,
 
     chart.configure_mesh().draw().unwrap();
 
-    // Generate unique colors for each nurse using HSL color space
+    // Generate unique colors for each nurse using HSL color space.
     let num_nurses = solution.len();
     let colors: Vec<RGBColor> = (0..num_nurses)
         .map(|i| {
@@ -146,31 +227,32 @@ pub fn plot_map(solution: &Vec<Vec<usize>>, patients: &HashMap<String, Patient>,
         })
         .collect();
 
-    // Draw depot
+    // Draw the depot.
+    let depot_point = scale_point(depot.x_coord, depot.y_coord, depot, scale_factor);
     chart
-        .draw_series(std::iter::once(Circle::new(
-            (depot.x_coord, depot.y_coord),
-            8,
-            BLACK.filled(),
-        )))
+        .draw_series(std::iter::once(Circle::new(depot_point, 5, BLACK.filled())))
         .unwrap();
 
-    // Draw patient locations and connect routes
+    // For each nurse, draw its route.
     for (nurse_id, route) in solution.iter().enumerate() {
         let color = colors[nurse_id];
 
-        let mut path_points = vec![(depot.x_coord, depot.y_coord)];
+        // Build the path: start at the depot, then visit each patient (scaled), and return to the depot.
+        let mut path_points = vec![depot_point];
         for patient_id in route {
             if let Some(patient) = patients.get(&patient_id.to_string()) {
-                path_points.push((patient.x_coord, patient.y_coord));
+                let scaled_coords = scale_point(patient.x_coord, patient.y_coord, depot, scale_factor);
+                path_points.push(scaled_coords);
             }
         }
-        path_points.push((depot.x_coord, depot.y_coord));
+        path_points.push(depot_point);
 
-        // Draw path lines
-        chart.draw_series(LineSeries::new(path_points.iter().copied(), &color)).unwrap();
+        // Draw the route as a line.
+        chart
+            .draw_series(LineSeries::new(path_points.iter().copied(), &color))
+            .unwrap();
 
-        // Draw arrows
+        // Draw arrows along the route.
         for window in path_points.windows(2) {
             if let [start, end] = *window {
                 let angle = ((end.1 - start.1).atan2(end.0 - start.0)).to_degrees();
@@ -178,15 +260,16 @@ pub fn plot_map(solution: &Vec<Vec<usize>>, patients: &HashMap<String, Patient>,
             }
         }
 
-        // Draw patient markers
-        for &(x, y) in path_points.iter() {
+        // Draw patient markers with a smaller radius.
+        // Skip the first and last points (which are the depot) when drawing patient markers.
+        for &point in path_points.iter().skip(1).take(path_points.len() - 2) {
             chart
-                .draw_series(std::iter::once(Circle::new((x, y), 5, color.filled())))
+                .draw_series(std::iter::once(Circle::new(point, 3, color.filled())))
                 .unwrap();
         }
     }
 
-    // Draw legend in the top-right corner
+    // Draw a legend in the top-right corner.
     let legend_x = max_x - (max_x - min_x) * 0.2;
     let legend_y = max_y - (max_y - min_y) * 0.05;
     for (i, color) in colors.iter().enumerate() {
@@ -203,7 +286,7 @@ pub fn plot_map(solution: &Vec<Vec<usize>>, patients: &HashMap<String, Patient>,
     println!("Solution diagram saved as {}", output_path);
 }
 
-/// Convert HSL to RGB
+/// Convert HSL to RGB.
 fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
     let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
@@ -223,7 +306,7 @@ fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
     )
 }
 
-/// Draw a small arrow at the end of a route segment
+/// Draw a small arrow at the end of a route segment.
 fn draw_arrow(
     chart: &mut ChartContext<BitMapBackend, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
     start: (f64, f64),
@@ -231,7 +314,8 @@ fn draw_arrow(
     angle: f64,
     color: &RGBColor,
 ) {
-    let arrow_length = 3.0; // Reduced arrow size
+    // Reduced arrow size.
+    let arrow_length = 2.0;
     let angle_rad = angle.to_radians();
 
     let arrow_x1 = end.0 - arrow_length * (angle_rad + PI / 6.0).cos();
@@ -239,6 +323,10 @@ fn draw_arrow(
     let arrow_x2 = end.0 - arrow_length * (angle_rad - PI / 6.0).cos();
     let arrow_y2 = end.1 - arrow_length * (angle_rad - PI / 6.0).sin();
 
-    chart.draw_series(LineSeries::new(vec![end, (arrow_x1, arrow_y1)], color)).unwrap();
-    chart.draw_series(LineSeries::new(vec![end, (arrow_x2, arrow_y2)], color)).unwrap();
+    chart
+        .draw_series(LineSeries::new(vec![end, (arrow_x1, arrow_y1)], color))
+        .unwrap();
+    chart
+        .draw_series(LineSeries::new(vec![end, (arrow_x2, arrow_y2)], color))
+        .unwrap();
 }
