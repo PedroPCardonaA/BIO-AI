@@ -2,56 +2,51 @@ use rand::Rng;
 use plotters::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Run NSGA-II: population size 100, for 50 generations.
-    let final_population = nsga_2(100, 2500);
-    
-    // Evaluate final population: get Pareto fronts and ranks.
+    let final_population = nsga_2(100, 100000);
     let (fronts, ranks) = non_dominated_sort(final_population.clone());
-    
     println!("Final Pareto Fronts:");
     for (i, front) in fronts.iter().enumerate() {
         println!("Front {}: {:?}", i + 1, front);
     }
-    
-    // Plot the final population, highlighting individuals with rank 0 in red.
     plot_population(&final_population, &ranks)?;
+    
+    // Extract the Pareto set (non-dominated individuals in decision space)
+    let pareto_set: Vec<Vec<f64>> = final_population
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| ranks[*i] == 0)
+        .map(|(_, individual)| individual.clone())
+        .collect();
+    plot_pareto_set(&pareto_set)?;
     
     Ok(())
 }
 
-// --- Objective functions ---
-// Here, we try to minimize both f1 and f2.
-fn function_1(x: f64) -> f64 {
-    x 
+fn function_1(x: f64, y: f64) -> f64 {
+    x * x + y * y
 }
 
 fn function_2(x: f64, y: f64) -> f64 {
-    (1.0 + y) / x
+    (x - 2.0) * (x - 2.0) + (y - 2.0) * (y - 2.0)
 }
 
-// --- Population initialization ---
 fn generate_population(size: usize) -> Vec<Vec<f64>> {
     let mut population = Vec::new();
     let mut rng = rand::rng();
     for _ in 0..size {
         let individual = vec![
-            rng.random_range(0.1..1.0), // x value
-            rng.random_range(0.0..5.0)  // y value
+            rng.random_range(0.0..2.0),
+            rng.random_range(0.0..2.0)
         ];
         population.push(individual);
     }
     population
 }
 
-// --- Variation operators ---
 fn random_mutation(individual: &mut Vec<f64>) {
     let mut rng = rand::rng();
     let index = rng.random_range(0..individual.len());
-    if index == 0 {
-        individual[index] = rng.random_range(0.1..1.0);
-    } else {
-        individual[index] = rng.random_range(0.0..5.0);
-    }
+    individual[index] = rng.random_range(0.0..2.0);
 }
 
 fn arithmetic_crossover(parent_1: &Vec<f64>, parent_2: &Vec<f64>) -> (Vec<f64>, Vec<f64>) {
@@ -68,20 +63,15 @@ fn arithmetic_crossover(parent_1: &Vec<f64>, parent_2: &Vec<f64>) -> (Vec<f64>, 
     (child_1, child_2)
 }
 
-// --- Dominance and sorting ---
-/// Returns true if `individual_1` dominates `individual_2` (minimization).
 fn dominates(individual_1: &Vec<f64>, individual_2: &Vec<f64>) -> bool {
-    let f1_1 = function_1(individual_1[0]);
+    let f1_1 = function_1(individual_1[0], individual_1[1]);
     let f2_1 = function_2(individual_1[0], individual_1[1]);
-    let f1_2 = function_1(individual_2[0]);
+    let f1_2 = function_1(individual_2[0], individual_2[1]);
     let f2_2 = function_2(individual_2[0], individual_2[1]);
     
     (f1_1 <= f1_2 && f2_1 <= f2_2) && (f1_1 < f1_2 || f2_1 < f2_2)
 }
 
-/// Non-dominated sorting that returns a tuple:
-/// - A vector of fronts (each front is a Vec of individuals)
-/// - A vector `rank` where rank[i] is the front number for the i-th individual.
 fn non_dominated_sort(population: Vec<Vec<f64>>) -> (Vec<Vec<Vec<f64>>>, Vec<usize>) {
     let mut fronts: Vec<Vec<Vec<f64>>> = Vec::new();
     let n = population.len();
@@ -129,9 +119,6 @@ fn non_dominated_sort(population: Vec<Vec<f64>>) -> (Vec<Vec<Vec<f64>>>, Vec<usi
     (fronts, rank)
 }
 
-// --- Crowding distance ---
-/// Computes crowding distances for a given set of individuals (a front),
-/// given their fitness values (each fitness is a Vec of objective values).
 fn crowding_distance(population: &Vec<Vec<f64>>, fitness: &Vec<Vec<f64>>) -> Vec<f64> {
     let n = population.len();
     if n == 0 {
@@ -159,12 +146,10 @@ fn crowding_distance(population: &Vec<Vec<f64>>, fitness: &Vec<Vec<f64>>) -> Vec
     distances
 }
 
-/// Computes crowding distances for the entire population, front by front.
 fn compute_crowding_distances(population: &Vec<Vec<f64>>, ranks: &Vec<usize>) -> Vec<f64> {
-    // Compute fitness values for each individual.
     let fitness: Vec<Vec<f64>> = population
         .iter()
-        .map(|ind| vec![function_1(ind[0]), function_2(ind[0], ind[1])])
+        .map(|ind| vec![function_1(ind[0], ind[1]), function_2(ind[0], ind[1])])
         .collect();
     let mut distances = vec![0.0; population.len()];
     let max_rank = *ranks.iter().max().unwrap();
@@ -192,9 +177,6 @@ fn compute_crowding_distances(population: &Vec<Vec<f64>>, ranks: &Vec<usize>) ->
     distances
 }
 
-// --- Tournament selection ---
-/// Selects one individual based on binary tournament using rank (lower is better)
-/// and, in case of tie, crowding distance (higher is better).
 fn tournament_selection(
     population: &Vec<Vec<f64>>, 
     ranks: &Vec<usize>, 
@@ -216,16 +198,12 @@ fn tournament_selection(
     }
 }
 
-// --- NSGA-II Main Loop ---
 fn nsga_2(pop_size: usize, generations: usize) -> Vec<Vec<f64>> {
     let mut population = generate_population(pop_size);
     let mut rng = rand::rng();
     for gen in 0..generations {
-        // Evaluate current population: sort and assign crowding distances.
         let (_fronts, ranks) = non_dominated_sort(population.clone());
         let crowding = compute_crowding_distances(&population, &ranks);
-        
-        // Create offspring via tournament selection, crossover, and mutation.
         let mut offspring = Vec::new();
         while offspring.len() < pop_size {
             let parent1 = tournament_selection(&population, &ranks, &crowding);
@@ -243,24 +221,20 @@ fn nsga_2(pop_size: usize, generations: usize) -> Vec<Vec<f64>> {
             }
         }
         
-        // Combine parent and offspring populations.
         let mut combined = population.clone();
         combined.extend(offspring);
         
-        // Perform non-dominated sorting on the combined population.
         let (combined_fronts, _) = non_dominated_sort(combined.clone());
         let mut new_population = Vec::new();
         let mut i = 0;
-        // Fill the new population front by front.
         while new_population.len() < pop_size {
             let front = &combined_fronts[i];
             if new_population.len() + front.len() <= pop_size {
                 new_population.extend(front.clone());
             } else {
-                // If the front must be partially included, sort it by crowding distance (descending)
                 let front_fitness: Vec<Vec<f64>> = front
                     .iter()
-                    .map(|ind| vec![function_1(ind[0]), function_2(ind[0], ind[1])])
+                    .map(|ind| vec![function_1(ind[0], ind[1]), function_2(ind[0], ind[1])])
                     .collect();
                 let cd = crowding_distance(front, &front_fitness);
                 let mut front_with_cd: Vec<(Vec<f64>, f64)> = front.iter().cloned().zip(cd.into_iter()).collect();
@@ -280,9 +254,6 @@ fn nsga_2(pop_size: usize, generations: usize) -> Vec<Vec<f64>> {
     population
 }
 
-// --- Plotting ---
-/// Plots all individuals in the objective space (x-axis: function_1, y-axis: function_2)
-/// and highlights those with rank 0 (first Pareto front) in red.
 fn plot_population(
     population: &Vec<Vec<f64>>,
     ranks: &Vec<usize>,
@@ -295,13 +266,14 @@ fn plot_population(
         .margin(20)
         .x_label_area_size(40)
         .y_label_area_size(40)
-        .build_cartesian_2d(0.0..1.0, 0.0..70.0)?;
+        .build_cartesian_2d(0.0..10.0, 0.0..10.0)?;
     
     chart.configure_mesh().draw()?;
     
     for (i, individual) in population.iter().enumerate() {
-        let x_val = function_1(individual[0]);
+        let x_val = function_1(individual[0], individual[1]);
         let y_val = function_2(individual[0], individual[1]);
+        // Highlight Pareto front (rank 0) points in red; others in blue.
         let point_color = if ranks[i] == 0 { &RED } else { &BLUE };
         chart.draw_series(std::iter::once(Circle::new(
             (x_val, y_val),
@@ -311,6 +283,36 @@ fn plot_population(
     }
     
     root.present()?;
-    println!("Plot saved to population_plot.png");
+    println!("Objective space plot saved to population_plot.png");
+    Ok(())
+}
+
+// New function to plot the Pareto set in decision space
+fn plot_pareto_set(
+    pareto_set: &Vec<Vec<f64>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = BitMapBackend::new("pareto_set.png", (800, 600)).into_drawing_area();
+    root.fill(&WHITE)?;
+    
+    let mut chart = ChartBuilder::on(&root)
+        .caption("Pareto Set in Decision Space", ("sans-serif", 40))
+        .margin(20)
+        .x_label_area_size(40)
+        .y_label_area_size(40)
+        .build_cartesian_2d(0.0..2.0, 0.0..2.0)?;
+    
+    chart.configure_mesh().draw()?;
+    
+    for individual in pareto_set {
+        // Each individual is represented by [x, y] in decision space
+        chart.draw_series(std::iter::once(Circle::new(
+            (individual[0], individual[1]),
+            5,
+            GREEN.filled(),
+        )))?;
+    }
+    
+    root.present()?;
+    println!("Pareto set plot saved to pareto_set.png");
     Ok(())
 }
